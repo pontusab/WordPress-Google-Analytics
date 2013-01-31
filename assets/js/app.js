@@ -1,13 +1,91 @@
 jQuery.noConflict();
 
 jQuery( function($) {
+    jQuery.ajax({
+        type : 'post',
+        dataType : 'json',
+        url : ajaxurl,
+        data : {
+            action: 'maps-get-normal-view'
+        },
+        beforeSend: function() {
+            jQuery('.stats-holder').addClass('startup');
+            jQuery('.stats-holder').append('<div class="loading"></div>');
+        },
+        success: function(response) {
+            if( response.success ) {
+                jQuery('.stats-holder').html(response.html);
+                jQuery('.stats-holder').removeClass('startup');
 
-    // Need to evaulate as wp_localize_script sends things as a string
-    stats = eval('[' + data.stats + ']');
+                stats = eval('[' + response.stats + ']');
 
-    var dayStats = [];
+                var wpga = new NetR.Wpga($('.stats'), null, response.translations);
+                wpga.plot(stats);
+                wpga.createToolTip();
+            }
+        }
+    });
+});
 
-    var plot_options = {
+NetR = typeof NetR === 'undefined' ? {} : NetR;
+
+NetR.Wpga = function(el, options, translations) {
+    this.options = jQuery.extend({}, NetR.Wpga.defaultOptions, options || {});
+    this.translations = jQuery.extend({}, NetR.Wpga.defaultTranslations, options || {});
+    this.el = el;
+}
+
+NetR.Wpga.prototype = {
+    plot:function(stats) {
+        this.stats = stats;
+        // Fire the graph
+        jQuery.plot(this.el, [stats], this.options.plot );
+    },
+
+    createToolTip: function() {
+        var self = this;
+        self.toolTipEl = jQuery('<div class="tooltip"></div>').appendTo('body').hide();
+
+        this.el.bind('plothover', function( event, pos, item ) {
+            if ( item ) {
+                if (self.previousPoint != item.dataIndex) {
+                    self.previousPoint = item.dataIndex;
+
+                    var date = moment(item.datapoint[0]);
+
+                    self.toolTipEl.hide();
+
+                    var x = item.datapoint[0].toFixed(2),
+                        y = item.datapoint[1].toFixed(2),
+
+                    // Set default content for tooltip
+                    content = '<span> ' + date.format('D MMM') + '</span><span><strong>' + item.datapoint[1] + '</strong> '+ self.translations.page_views +'</span>';
+
+                    // Now show tooltip
+                    self.showTooltip( item.pageX, item.pageY, content );
+                }
+            }
+            else {
+                self.toolTipEl.hide();
+                self.previousPoint = null;
+            }
+
+        });
+    },
+    showTooltip: function( x, y, content ) {
+        this.toolTipEl.html(content).css( {
+            top: y - 75,
+            left: x - this.toolTipEl.width()/2
+        }).fadeIn(200);
+    }
+};
+
+NetR.Wpga.defaultTranslations = {
+    page_views: 'Page views'
+};
+
+NetR.Wpga.defaultOptions = {
+    plot: {
         xaxis: {
             mode: 'time',
             timeformat: "%d %b",
@@ -33,8 +111,8 @@ jQuery( function($) {
                 show: true,
                 fill: true,
                 points: {
-                    show: true,
-                },
+                       show: true,
+                   },
                 shadowSize: 0,
                 lineWidth: 0,
                 fillColor: '#8db9cc',
@@ -50,54 +128,5 @@ jQuery( function($) {
             labelMargin: 20,
             axisMargin: 20
         }
-
-
     }
-
-    // Fire the graph
-    $.plot( $('.stats'), [stats], plot_options );
-
-
-    function showTooltip( x, y, contents ) {
-        $('<div class="tooltip">' + contents + '</div>').css( {
-            top: y - 75,
-            left: x - 80
-        }).appendTo('body').fadeIn(200);
-    }
-
-    var previousPoint = null;
-
-    $('.stats').bind('plothover', function( event, pos, item ) {
-
-        $('#x').text( pos.x.toFixed(2) );
-        $('#y').text( pos.y.toFixed(2) );
-
-        if ( item ) {
-            if (previousPoint != item.datapoint) {
-                previousPoint = item.datapoint;
-
-                var date = moment(item.datapoint[0]);
-
-                $('.tooltip').remove();
-
-                var x = item.datapoint[0].toFixed(2),
-                    y = item.datapoint[1].toFixed(2),
-
-                // Set default content for tooltip
-                content = '<span> ' + date.format('D MMM') + '</span><span><strong>' + item.datapoint[1] + '</strong> '+ data.page_views +'</span>';
-            
-                // If there is a cached item object at this index use it instead
-                if( dayStats[item.dataIndex] )
-                    content = dayStats[item.dataIndex].alternateText;
-
-                // Now show tooltip
-                showTooltip( item.pageX, item.pageY, content );
-            }
-        }
-        else {
-            $('.tooltip').remove();
-            previousPoint = null;
-        }
-
-    });
-});
+};
