@@ -16,20 +16,22 @@ require( 'gapi.class.php' );
 
 class Wpga 
 {
-
-
 	// Vars in Object
 	private 
 		$settings,
 		$user,
 		$pass,
 		$profile,
-		$gapi;
+		$gapi,
+		$types;
 
 
 	public function __construct() 
 	{
 		global $pagenow;
+
+		// Add all post_types to the object
+		$this->types = get_post_types( array( 'show_ui' => true ), 'names' );
 
 		add_action('init', array( &$this, 'init'));
 	}
@@ -43,7 +45,13 @@ class Wpga
 		add_action( 'wp_dashboard_setup', array( &$this, 'add_analytics' ) );
 
 		add_action( 'wp_ajax_maps-get-normal-view', array( &$this, 'get_normal_view' ) );
+		add_action( 'wp_ajax_maps-get-settings-view', array( &$this, 'get_settings_view' ) );
 		add_action( 'wp_ajax_maps-save-settings', array( &$this, 'save_settings' ) );
+
+
+		// Register counter on post-types
+		// add_action( 'add_meta_boxes', array( &$this, 'add_metaboxes' ) );
+
 	}
 
 
@@ -137,8 +145,8 @@ class Wpga
     // Get data from Google Analytics
 	public function get_report_data() 
 	{
-		if( $this->gapi ) {
-
+		if( $this->gapi ) 
+		{
 			return $this->gapi->getResults();
 		}
 	}
@@ -165,7 +173,7 @@ class Wpga
 		echo $output;
 	}
 
-	
+
 	// Print the Graph and stats 
 	public function get_normal_view() 
 	{
@@ -214,29 +222,6 @@ class Wpga
 			$output .= '</div>';
 
 			$json['stats'] = $this->get_js_data();
-		} 
-		else 
-		{
-			$output .= '<a class="edit-wpga" href="?cancel=true">'. __('Cancel', 'wpga') .'</a>';
-
-			$output .= '<form action="/wp-admin/" class="save-analytics" method="post">';
-
-				$output .= '<div class="row">';
-					$output .= '<input type="text" placeholder="'. __('Google Analytics Username', 'wpga') .'" '. ( isset( $this->user ) ? 'value="'. $this->user .'"' : '' ) .' name="wpga[user]">';
-				$output .= '</div>';
-				
-				$output .= '<div class="row">';
-					$output .= '<input type="password" placeholder="'. __('Google Analytics Password', 'wpga') .'" '. ( isset( $this->pass ) ? 'value="'. $this->pass .'"' : '' ) .' name="wpga[pass]">';
-				$output .= '</div>';
-				
-				$output .= '<div class="row">';
-					$output .= '<input type="text" placeholder="'. __('Google Analytics Profile-id', 'wpga') .'" '. ( isset( $this->profile ) ? 'value="'. $this->profile .'"' : '' ) .' name="wpga[profile]">';
-				$output .= '</div>';
-
-				$output .= '<input type="submit" name="Submit"  class="button-secondary" value="'. __('Save Settings', 'blocks') .'" />';
-				$output .= '<input type="hidden" name="save-wpga" value="save" />';
-
-			$output .= '</form>';
 		}
 
 		$json['success'] 	  = true;
@@ -249,6 +234,80 @@ class Wpga
 		echo json_encode( $json );
 
 		exit;
+	}
+
+	public function get_settings_view()
+	{
+		$this->load_settings();
+		$json = array();
+
+
+		$output = '<div class="stats-intro">';
+			$output .= '<div class="stats-intro-inner">';
+				$output .= '<h2>Analysis Tools</h2>';
+				$output .= '<p>Dive into your data. Standard reports make it easy to measure and understand engagement on your site. Plus it only takes a few clicks to quickly build out customized reports, visitor segments, and identify important data to share with your team.</p>';
+			$output .= '</div>';
+		$output .= '</div>';
+
+		$output .= '<div class="stats-form">';	
+
+			$output .= '<div class="save-analytics">';		
+
+				$output .= '<a class="edit-wpga" href="">'. __('Cancel', 'wpga') .'</a>';
+
+				$output .= '<div class="ga-logo"></div>';
+
+				$output .= '<form action="/wp-admin/" method="post">';
+
+					$output .= '<div class="row">';
+						$output .= '<label for="email"><strong>'. __('Email', 'wpga') .'</strong></label>';
+						$output .= '<input type="text" id="email" '. ( isset( $this->user ) ? 'value="'. $this->user .'"' : '' ) .' name="wpga[email]">';
+					$output .= '</div>';
+					
+					$output .= '<div class="row">';
+						$output .= '<label for="password"><strong>'. __('Password', 'wpga') .'</strong></label>';
+						$output .= '<input type="password" id="password" '. ( isset( $this->pass ) ? 'value="'. $this->pass .'"' : '' ) .' name="wpga[pass]">';
+					$output .= '</div>';
+					
+					$output .= '<div class="row">';
+						$output .= '<label for="profile"><strong>'. __('Profile id', 'wpga') .'</strong></label>';
+						$output .= '<input type="text" id="profile" '. ( isset( $this->profile ) ? 'value="'. $this->profile .'"' : '' ) .' name="wpga[profile]">';
+					$output .= '</div>';
+
+					$output .= '<input type="submit" name="Submit"  class="button button-primary button-large" value="'. __('Save Settings', 'wpga') .'" />';
+					$output .= '<input type="hidden" name="save-wpga" value="save" />';
+
+				$output .= '</form>';
+
+				$json['success'] 	  = true;
+				$json['html']         = $output;
+
+				// Set correct header for json-data
+				header('Content-type: application/json');
+
+				echo json_encode( $json );
+
+				exit;
+
+			$output .= '</div>';
+		$output .= '</div>';
+	}
+
+
+	// Add metabox to all post_types
+	public function add_metaboxes() 
+	{
+		foreach( $this->types as $type ) 
+		{
+			add_meta_box( 'stats', __('Stats', 'wpga'), array( &$this, 'count_on_page' ), $type, 'side', 'high' );
+		}
+	}
+
+
+	// Output the views in metabox
+	public function count_on_page() 
+	{
+		echo 'Stats based on title';
 	}
 }
 

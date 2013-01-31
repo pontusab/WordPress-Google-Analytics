@@ -1,33 +1,110 @@
 jQuery.noConflict();
 
 jQuery( function($) {
-    jQuery.ajax({
-        type : 'post',
-        dataType : 'json',
-        url : ajaxurl,
-        data : {
-            action: 'maps-get-normal-view'
-        },
-        beforeSend: function() {
-            jQuery('.stats-holder').addClass('startup');
-            jQuery('.stats-holder').append('<div class="loading"></div>');
-        },
-        success: function(response) {
-            if( response.success ) {
-                jQuery('.stats-holder').html(response.html);
-                jQuery('.stats-holder').removeClass('startup');
-
-                stats = eval('[' + response.stats + ']');
-
-                var wpga = new NetR.Wpga($('.stats'), null, response.translations);
-                wpga.plot(stats);
-                wpga.createToolTip();
-            }
-        }
-    });
+    var wpgaGui = new NetR.WpgaGui($('.stats-holder'));
+    wpgaGui.init();
 });
 
 NetR = typeof NetR === 'undefined' ? {} : NetR;
+
+NetR.WpgaGui = function(el) {
+    this.el = el;
+}
+
+NetR.WpgaGui.prototype = {
+    init:function() {
+        this.loadData();
+    },
+    loadData: function()
+    {
+        var self = this;
+
+        jQuery.ajax({
+            type : 'post',
+            dataType : 'json',
+            url : ajaxurl,
+            data : {
+                action: 'maps-get-normal-view'
+            },
+            beforeSend: function() {
+                self.el.addClass('startup');
+                self.el.append('<div class="loading"></div>');
+            },
+            success: function(response) {
+                if( response.success ) {
+                    self.el.html(response.html);
+                    self.el.removeClass('startup');
+
+                    stats = eval('[' + response.stats + ']');
+
+                    self.wpga = new NetR.Wpga(jQuery('.stats'), null, response.translations);
+                    self.wpga.plot(stats);
+                    self.wpga.createToolTip();
+
+                    self.el.find('.edit-wpga').click(jQuery.proxy(self.onEditClick, self));
+                }
+            }
+        });
+    },
+    
+    onEditClick: function(e)
+    {
+        var self = this;
+
+        e.preventDefault();
+
+        jQuery.ajax({
+            type : 'post',
+            dataType : 'json',
+            url : ajaxurl,
+            data : {
+                action: 'maps-get-settings-view'
+            },
+            beforeSend: function() {
+                self.el.append('<div class="loading"></div>');
+            },
+            success: function(response) {
+                if( response.success ) {
+                    self.el.html(response.html);
+
+                    self.el.find('.edit-wpga').click(jQuery.proxy(self.onEditCancelClick, self));
+                    self.el.find('input[type=submit]').click(jQuery.proxy(self.onEditSaveClick, self));
+                }
+            }
+        });
+    },
+    onEditCancelClick: function(e)
+    {
+        e.preventDefault();
+        this.loadData();
+    },
+    onEditSaveClick: function(e)
+    {
+        var self = this;
+
+        e.preventDefault();
+
+        var data = jQuery.extend({ action: 'maps-get-settings-save' }, self.el.find('form').serialize());
+
+        jQuery.ajax({
+            type : 'post',
+            dataType : 'json',
+            url : ajaxurl,
+            data : data,
+            beforeSend: function() {
+                self.el.append('<div class="loading"></div>');
+            },
+            success: function(response) {
+                if( response.success ) {
+                    this.loadData();
+                }
+                else {
+                    // Something went wrong (maybe validation error)
+                }
+            }
+        });
+    }
+}
 
 NetR.Wpga = function(el, options, translations) {
     this.options = jQuery.extend({}, NetR.Wpga.defaultOptions, options || {});
