@@ -23,13 +23,15 @@ class Wpga {
 		$user,
 		$pass,
 		$profile,
-		$gapi;
+		$gapi,
+		$expire;
 
 	public function __construct() {
 		global $pagenow;
 
 		// Only run in dashboard-view
 		if( $pagenow == 'index.php' ) {
+			$this->expire = mktime( 0, 0, 0, date('n'), date('j') + 1 );
 			$this->load_settings();
 		}
 	}
@@ -42,6 +44,7 @@ class Wpga {
 	} 
 
 	public function enqueue_scripts() {
+
         wp_register_style( 'stats', plugins_url( '/assets/css/stats.css', __FILE__ ) );
         wp_register_script( 'flot-main', plugins_url( '/assets/js/jquery.flot.js', __FILE__ ), array('jquery') );
         wp_register_script( 'app', plugins_url( '/assets/js/app.js', __FILE__ ), array('jquery') );
@@ -52,6 +55,7 @@ class Wpga {
         if( $this->settings ) {
 	        wp_enqueue_script( 'flot-main' );
 	        wp_enqueue_script( 'app' );
+
 
 	        // Add data to app.js //Page Views
 			wp_localize_script( 'app', 'data', array(
@@ -78,15 +82,15 @@ class Wpga {
 
     private function load_settings() {
     	$this->settings = get_option( 'wpga' );
-
-		$this->user    = $this->settings['user'];
-		$this->pass    = $this->settings['pass'];
-		$this->profile = $this->settings['profile'];
+		$this->user     = $this->settings['user'];
+		$this->pass     = $this->settings['pass'];
+		$this->profile  = $this->settings['profile'];
 
 
 		add_action( 'wp_dashboard_setup', array( $this, 'add_analytics' ) );
 		add_action( 'admin_init', array( $this, 'save_settings') );
 		add_action( 'admin_init', array( $this, 'enqueue_scripts') );
+
 
 		if( $this->settings ) {
 			$this->gapi = new gapi( 
@@ -99,15 +103,18 @@ class Wpga {
 
 			$this->gapi->requestReportData(
 				$this->profile, 
-				array( 'date' ),  						// Dimensions
+				array( 									// Dimensions
+					'date',
+					'year',
+					'month',
+					'day'
+				),  						
 				array(									// Metrics
 					'visits',
 					'visitors',
 				 	'pageviews', 
-				 	'uniquePageviews', 
-				 	'exitRate', 
-				 	'avgTimeOnPage', 
-				 	'entranceBounceRate'
+				 	'avgTimeOnSite', 
+				 	'newVisits'
 				),
 				'-visits',
 				null,
@@ -122,7 +129,20 @@ class Wpga {
 	public function get_report_data() {
 
 		if( $this->gapi ) {
-			return $this->gapi->getResults();
+
+			$transient = get_transient( 'wpga_report_data' );
+			
+			if ( empty( $transient ) ) {
+
+				$report_data = $this->gapi->getResults();
+
+			   // we have a transient return/assign the results
+			   set_transient( 'wpga_report_data', $report_data, $this->expire );
+			} else {
+				$report_data = get_transient( 'wpga_report_data' );
+			}
+		
+			return $report_data;
 		}
 	}
 
@@ -130,21 +150,38 @@ class Wpga {
 	// Uses wp_localize_script
 	public function get_js_data() {
 
-		foreach( $this->get_report_data() as $data ) {
-			#print_r( date( 'Y-m-d',strtotime( $data->getDate() ) ) );
-			$stats[] = '[new Date('. date( 'Y',strtotime( $data->getDate() ) ) .', '. date( 'm',strtotime( $data->getDate() ) ) .', '. date( 'd',strtotime( $data->getDate() ) ) .'),'. number_format( $data->getVisits() ) .']';
-		}
+		$transient = get_transient( 'wpga_stats_data' );
 
-		// Return the data 
-		return implode( ',', $stats );
+		if ( empty( $transient ) ) {
+
+			foreach( $this->get_report_data() as $data ) {
+				$stats[] = '[new Date('. date( 'Y',strtotime( $data->getDate() ) ) .' -1, '. date( 'm',strtotime( $data->getDate() ) ) .' -1, '. date( 'd',strtotime( $data->getDate() ) ) .' ),'. number_format( $data->getVisits() ) .']';
+			}
+
+			$stats_data = implode( ',', $stats );
+
+		   // we have a transient return/assign the results
+		   set_transient( 'wpga_stats_data', $stats_data, $this->expire  );
+		} else {
+			$stats_data = get_transient( 'wpga_stats_data' );
+		}
+	
+		return $stats_data;
 	}
 
 	// Print the Graph and stats 
 	public function print_analytics() {
 
+		$edit 	= ( isset( $_GET['edit'] ) ? $_GET['edit'] : '' );
+		$cancel = ( isset( $_GET['cancel'] ) ? $_GET['cancel'] : '' );
+
 		$output = '<div class="stats-holder">';
 
-			if( $this->gapi ) {
+			if( !$edit && $this->gapi || $cancel && current_user_can( 'manage_options' ) ) {
+
+				if( current_user_can( 'manage_options' ) ) {
+					$output .= '<a class="edit-wpga" href="?edit=true">'. __('Edit Settings', 'wpga') .'</a>';
+				}
 
 				$output .= '<div class="stats-container">';
 					$output .= '<div class="stats"></div>';
@@ -154,13 +191,7 @@ class Wpga {
 
 					$output .= '<span>';
 						$output .= '<h2>' . __( 'Total Visits', 'wpga' ) . '</h2>';
-						$output .= number_format( $this->gapi->getVisitors() );
-					$output .= '</span>';
-
-					
-					$output .= '<span>';
-						$output .= '<h2>' . __( 'Unique Visitors', 'wpga' ) . '</h2>';
-						#$output .= number_format( $this->gapi->getUniquevisitors() );
+						$output .= number_format( $this->gapi->getVisits() );
 					$output .= '</span>';
 
 					$output .= '<span>';
@@ -169,35 +200,32 @@ class Wpga {
 					$output .= '</span>';
 
 					$output .= '<span>';
-						$output .= '<h2>' . __( 'Avg Time on Page', 'wpga' ) . '</h2>';
-						$output .= $this->gapi->getAvgtimeonpage() .' '. __( 'Seconds', 'wpga' );
-					$output .= '</span>';
-
-					$output .= '<span>';
-						$output .= '<h2>' . __( 'Bounce Rate', 'wpga' ) . '</h2>';
-						#$output .= $this->gapi->getAvgtimeonpage() .' '. __( 'Seconds', 'wpga' );
+						$output .= '<h2>' . __( 'Avg Time on Site', 'wpga' ) . '</h2>';
+						$output .= number_format( $this->gapi->getAvgtimeonsite() ) .' '. __( 'Seconds', 'wpga' );
 					$output .= '</span>';
 
 					$output .= '<span>';
 						$output .= '<h2>' . __( 'New Visits', 'wpga' ) . '</h2>';
-						#$output .= $this->gapi->getAvgtimeonpage() .' '. __( 'Seconds', 'wpga' );
+						$output .= $this->gapi->getNewvisits();
 					$output .= '</span>';
 
 				$output .= '</div>';
 			} else {
 
-				$output .= '<form action="" class="save-analytics" method="post">';
+				$output .= '<a class="edit-wpga" href="?cancel=true">'. __('Cancel', 'wpga') .'</a>';
+
+				$output .= '<form action="/wp-admin/" class="save-analytics" method="post">';
 
 					$output .= '<div class="row">';
-						$output .= '<input type="text" placeholder="'. __('Google Analytics Username', 'wpga') .'" name="wpga[user]">';
+						$output .= '<input type="text" placeholder="'. __('Google Analytics Username', 'wpga') .'" '. ( isset( $this->user ) ? 'value="'. $this->user .'"' : '' ) .' name="wpga[user]">';
 					$output .= '</div>';
 					
 					$output .= '<div class="row">';
-						$output .= '<input type="text" placeholder="'. __('Google Analytics Password', 'wpga') .'" name="wpga[pass]">';
+						$output .= '<input type="password" placeholder="'. __('Google Analytics Password', 'wpga') .'" '. ( isset( $this->pass ) ? 'value="'. $this->pass .'"' : '' ) .' name="wpga[pass]">';
 					$output .= '</div>';
 					
 					$output .= '<div class="row">';
-						$output .= '<input type="text" placeholder="'. __('Google Analytics Profile-id', 'wpga') .'" name="wpga[profile]">';
+						$output .= '<input type="text" placeholder="'. __('Google Analytics Profile-id', 'wpga') .'" '. ( isset( $this->profile ) ? 'value="'. $this->profile .'"' : '' ) .' name="wpga[profile]">';
 					$output .= '</div>';
 
 					$output .= '<input type="submit" name="Submit"  class="button-secondary" value="'. __('Save Settings', 'blocks') .'" />';

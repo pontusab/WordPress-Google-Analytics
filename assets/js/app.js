@@ -37,9 +37,10 @@ jQuery( function($) {
                 },
                 shadowSize: 0,
                 lineWidth: 0,
-                fillColor: '#ACC99D',
+                fillColor: '#8db9cc',
                 barWidth: 77760000 // (24 * 60 * 60 * 1000) * 0.9
             },
+            highlightColor: '#fcab00',
         },
         grid: {
             color: '#646464',
